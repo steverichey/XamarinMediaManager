@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -129,7 +130,10 @@ namespace MediaManager.Media
             return await UpdateMediaItem(mediaItem).ConfigureAwait(false);
         }
 
-        public virtual async Task<IMediaItem> UpdateMediaItem(IMediaItem mediaItem)
+        private BlockingCollection<IMediaItem> _mediaItemsToExtract = new BlockingCollection<IMediaItem>(new ConcurrentQueue<IMediaItem>());
+        private Task _mediaItemsMonitor;
+
+        public virtual Task<IMediaItem> UpdateMediaItem(IMediaItem mediaItem)
         {
             if (!mediaItem.IsMetadataExtracted)
             {
@@ -142,12 +146,32 @@ namespace MediaManager.Media
                     mediaItem.MediaType = GetMediaType(mediaItem);
                 }
 
+                if (_mediaItemsMonitor == null)
+                    _mediaItemsMonitor = Task.Run(MonitorMediaItems);
+
+                _mediaItemsToExtract.Add(mediaItem);
+
+                /*_ = Task.Run(async () =>
+                  {
+                      //mediaItem = await GetMetadata(mediaItem).ConfigureAwait(false);
+                      await GetMetadata(mediaItem).ConfigureAwait(false);
+                      //mediaItem.Image = await GetMediaImage(mediaItem).ConfigureAwait(false);
+                      mediaItem.IsMetadataExtracted = true;
+                  }).ConfigureAwait(false);*/
+            }
+
+            return Task.FromResult(mediaItem);
+        }
+
+        private async Task MonitorMediaItems()
+        {
+            while (true)
+            {
+                var mediaItem = _mediaItemsToExtract.Take();
                 mediaItem = await GetMetadata(mediaItem).ConfigureAwait(false);
                 mediaItem.Image = await GetMediaImage(mediaItem).ConfigureAwait(false);
                 mediaItem.IsMetadataExtracted = true;
             }
-
-            return mediaItem;
         }
 
         public async Task<IMediaItem> GetMetadata(IMediaItem mediaItem)
